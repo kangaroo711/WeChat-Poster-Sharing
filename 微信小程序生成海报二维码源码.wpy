@@ -1,0 +1,385 @@
+<style lang="less">
+page {
+  height: 100%;
+}
+.container {
+  height: 100%;
+}
+
+//显示文字
+.text {
+  position: fixed;
+  left: 50rpx;
+  top: 60rpx;
+  padding: 35rpx;
+  &::before {
+    content: '';
+    display: block;
+    width: 60rpx;
+    height: 1rpx;
+    background-color: #fff;
+    left: 0;
+    top: 0;
+    position: absolute;
+  }
+  &::after {
+    content: '';
+    display: block;
+    width: 1rpx;
+    height: 60rpx;
+    background-color: #fff;
+    left: 0;
+    top: 0;
+    position: absolute;
+  }
+  .txt {
+    display: block;
+    color: #fff;
+    &:first-child {
+      font-size: 60rpx;
+      padding-bottom: 30rpx;
+    }
+    &:last-child {
+      font-size: 34rpx;
+      padding-left: 100rpx;
+    }
+  }
+}
+
+//轮播图
+.up,
+.swiper,
+.swiper-item {
+  width: 100%;
+  height: 100%;
+}
+//轮播图指示点位置
+.wx-swiper-dots.wx-swiper-dots-horizontal {
+  margin-bottom: 250rpx;
+}
+
+//保存和取消按钮
+.down {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  .btn-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 250rpx;
+    background-color: #f7f7fa;
+    .btn {
+      width: 277rpx;
+      height: 100rpx;
+      line-height: 100rpx;
+      font-size: 34rpx;
+    }
+  }
+}
+
+//画图(隐藏)
+.canvas-poster {
+  position: fixed;
+  // zoom: 40%;
+  left: -10000px; // 将画布隐藏在可视区域外
+}
+
+//授权按钮
+.authBtn{
+  position: fixed;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  width: 350rpx;
+  height: 150rpx;
+  line-height: 150rpx;
+  font-size: 40rpx;
+  margin-top: 400rpx;
+  margin-left:auto;
+  margin-right:auto;
+}
+</style>
+
+<template>
+  <view class="container">
+    <i-grid>
+      <i-spin fix wx:if="{{spinShow}}"></i-spin>
+    </i-grid>
+    <view class="up">
+      <swiper
+        class="swiper"
+        indicator-dots="{{indicatorDots}}"
+        indicator-color="{{indicatorColor}}"
+        indicator-active-color="{{indicatorActiveColor}}"
+        autoplay="{{autoplay}}"
+        interval="{{interval}}"
+        duration="{{duration}}"
+        bindchange="currentChange"
+      >
+        <block wx:for="{{background}}" wx:key="*this">
+          <swiper-item>
+            <view class="text">
+              <text class="txt">{{resultValArr[1]}}</text>
+              <text class="txt">“愿你被世界温柔以待”</text>
+            </view>
+            <image class="swiper-item" mode="widthFix" src="{{item.tempFileURL}}">
+          </swiper-item>
+        </block>
+      </swiper>
+    </view>
+    <view class="down">
+      <view class="btn-box">
+        <i-button i-class="btn" @tap="cancel()">返回</i-button>
+        <i-button i-class="btn" @tap="confirm()" type="success" loading="{{btnLoading}}">保存到相册</i-button>
+      </view>
+        <button wx:if="{{imgAuthBtn}}" open-type="openSetting" bindopensetting='checkImgAuthFun' class="authBtn">请授权相册</button>
+    </view>
+  </view>
+  <canvas
+    class="canvas-poster"
+    canvas-id="canvasPoster"
+    style="width:{{width}}px;height:{{height}}px"
+  ></canvas>
+</template>
+
+<script>
+import wepy from 'wepy';
+import drawQrcode from 'weapp-qrcode';
+export default class Save extends wepy.page {
+  config = {
+    navigationBarTitleText: '保存图片',
+    usingComponents: {
+      'i-spin': '../resource/iview-ui/spin/index',
+      'i-button': '../resource/iview-ui/button/index'
+    }
+  };
+  data = {
+    width: '',
+    height: '',
+    addHeight: '',
+    pixelRatio: 2, //像素比
+    resultValArr: '', //eg: 分值XX, 没有抑郁
+    poster: '', //保存
+    saveQR: '../images/save/qr.jpg',
+    //swiper
+    background: [], //图片列表
+    indicatorDots: true,
+    indicatorColor: 'rgba(255, 255, 255, .3)',
+    indicatorActiveColor: 'rgba(255, 255, 255, 1)',
+    vertical: false,
+    autoplay: false,
+    interval: 2000,
+    duration: 500,
+    current: 0,
+    spinShow: true, //页面加载动画
+    btnLoading: false, //按钮加载状态
+    imgAuthBtn: false, //图片重新授权
+  };
+  methods = {
+    cancel() {
+      wx.navigateBack({
+        delta: 1
+      });
+    },
+    confirm() {
+      let that = this;
+      that.btnLoading = true;
+      that.methods.drawImage(that);
+    },
+    currentChange(e) {
+      //轮播图变动更新图片索引
+      let that = this;
+      that.current = e.detail.current;
+    },
+    //动态转换大小, 依照iphone5的screen宽高, 320*568,因为是二倍图所以乘以2
+    // 当前手机的宽/iphone5的宽 =  X/在iphone5设置的坐标 , X是当前手机要设置的坐标
+    pxW(width, px) {
+      return (width / (320 * 2)) * px * 2;
+    },
+    pxH(height, px) {
+      return (height / (568 * 2)) * px * 2;
+    },
+    pxFS(width, px) {
+      return (width / (2 * 320)) * px;
+    },
+    drawImage(that) {
+      let width = that.width;
+      let height = that.height;
+      let pixelRatio = that.pixelRatio;
+
+      let ctx = wx.createCanvasContext('canvasPoster', this);
+
+      // 网络图片需要获取图片临时地址,canvas才能使用
+      wx.getImageInfo({
+        src: that.background[that.current].tempFileURL,
+        success(res) {
+          //插入图片
+          ctx.drawImage(res.path, 0, 0, width, height);
+
+          //插入底部虚化背景(为啥我放最前面,因为放二维码前面,奇怪的安卓会遮住二维码)
+          let X3 = 0;
+          let Y3 = that.methods.pxH(height, 450);
+          let w3 = width;
+          let h3 = that.methods.pxH(height, 200);
+          ctx.setFillStyle('rgba(0,0,0,.3)');
+          ctx.fillRect(X3, Y3, w3, h3);
+
+          //插入上条 joint
+          let Xl = that.methods.pxW(width, 25);
+          let Yl = that.methods.pxH(height, 25);
+          let wl = 2;
+          let hl = that.methods.pxH(height, 20);
+          ctx.setFillStyle('#fff');
+          ctx.fillRect(Xl, Yl, wl, hl);
+
+          //插入左条 joint
+          let Xr = that.methods.pxW(width, 25);
+          let Yr = that.methods.pxH(height, 25);
+          let wr = that.methods.pxW(width, 20);
+          let hr = 2;
+          ctx.setFillStyle('#fff');
+          ctx.fillRect(Xr, Yr, wr, hr);
+
+          //插入分值结果文字
+          let resultValArr = that.resultValArr;
+          ctx.setFontSize(that.methods.pxFS(width, 54));
+          ctx.setFillStyle('#fff');
+          let X0 = that.methods.pxW(width, 40);
+          let Y0 = that.methods.pxH(height, 70);
+          ctx.fillText(resultValArr[1], X0, Y0);
+
+          ctx.setFontSize(that.methods.pxFS(width, 22));
+          ctx.setFillStyle('#fff');
+          let X1 = that.methods.pxW(width, 90);
+          let Y1 = that.methods.pxH(height, 110);
+          ctx.fillText("“愿你被世界温柔以待”", X1, Y1);
+
+
+          //二维码图片
+          let saveQR = that.data.saveQR;
+          let qrcodeWH = that.methods.pxW(width, 73);
+          let qrcodeX = that.methods.pxW(width, 20);
+          let qrcodeY = that.methods.pxH(height, 470);
+          ctx.drawImage(saveQR, qrcodeX, qrcodeY, qrcodeWH, qrcodeWH);
+
+          //插入文字
+          ctx.setFontSize(that.methods.pxFS(width, 30));
+          ctx.setFillStyle('#fff');
+          let X5 = that.methods.pxW(width, 130);
+          let Y5 = that.methods.pxH(height, 495);
+          ctx.fillText('小 绿 抑 郁 测 试 助 手', X5, Y5);
+
+          //插入文字
+          ctx.setFontSize(that.methods.pxFS(width, 30));
+          ctx.setFillStyle('#fff');
+          let X6 = that.methods.pxW(width, 130);
+          let Y6 = that.methods.pxH(height, 525);
+          ctx.fillText('压 码 免 费 测 量', X6, Y6);
+          ctx.draw();
+
+          setTimeout(() => {
+            wx.canvasToTempFilePath({
+              canvasId: 'canvasPoster',
+              x: 0,
+              y: 0,
+              width: that.width,
+              height: that.height,
+              destWidth: that.width,
+              destHeight: that.height,
+              success: res => {
+                that.poster = res.tempFilePath;
+                that.methods.saveImage(that);
+              }
+            });
+          }, 200);
+        }
+      });
+    },
+    saveImage(that) {
+      if (that.poster) {
+        wx.getSetting({ //获取设置
+          success(res) {
+            wx.authorize({ //获取相册授权信息
+              scope: 'scope.writePhotosAlbum',
+              success() { //已授权
+                  wx.saveImageToPhotosAlbum({
+                    filePath: that.poster,
+                    success: () => {
+                      wx.showToast({
+                        title: '海报已保存，快去分享给好友吧。',
+                        icon: 'none'
+                      });
+                      that.btnLoading = false;
+                      that.$apply();
+                    },
+                    fail() { // 一般保存出错会出现(可删除)
+                      that.imgAuthBtn = true
+                      wx.showToast({
+                        title: '未知错误请反馈',
+                        icon: 'none',
+                      })
+                    }
+                  });
+              },
+              fail() { //未授权
+                that.btnLoading = false;
+                that.imgAuthBtn = true
+                that.$apply()
+                wx.showToast({
+                  title: '保存失败请授权',
+                  icon: 'none',
+                })
+              }
+            })
+          }
+        })
+      }
+    },
+    getImage(that) {
+      let arr = [];
+      wx.cloud.callFunction({
+          name: 'getCanvasList'
+      }).then(res => {
+        that.spinShow = false;
+        //获取图片列表保存到数组
+        that.background = res.result;
+        //初始化第一张即将要保存的图片
+        that.$apply();
+      });
+    },
+    checkImgAuthFun(res) { //二次以上检验是否授权图片
+        let that = this;
+        if (!res.detail.authSetting['scope.writePhotosAlbum']) { //二次以上授权, 如果未授权
+          that.imgAuthBtn = true //显示授权按钮          
+          wx.showToast({
+            title: '授权失败',
+            icon: 'none',
+          })
+        } else {
+          that.imgAuthBtn = false //不显示授权按钮
+          wx.showToast({
+            title: '授权成功',
+            icon: 'none',
+          })
+        }
+      },
+  };
+  onLoad(options) {
+    let that = this;
+    //切割路由传参
+    that.resultValArr = options.resultVal.split(' ');
+    //加载图片
+    that.methods.getImage(that);
+    wx.getSystemInfo({
+      success(res) {
+        let screenWidthPx = res.screenWidth;
+        let screenHeightPx = res.screenHeight;
+        // 放大画布的大小, 因为canvas保存会变模糊
+        that.width = screenWidthPx * 2;
+        that.height = screenHeightPx * 2;
+      }
+    });
+  }
+}
+</script>
